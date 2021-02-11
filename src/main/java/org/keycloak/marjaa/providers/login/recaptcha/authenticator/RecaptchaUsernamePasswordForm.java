@@ -34,13 +34,26 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 	public static final String SITE_KEY = "site.key";
 	public static final String SITE_SECRET = "secret";
 	private static final Logger logger = Logger.getLogger(RecaptchaUsernamePasswordFormFactory.class);
-	private String siteKey;
 
-	@Override
-	protected Response createLoginForm( LoginFormsProvider form ) {
-		form.setAttribute("recaptchaRequired", true);
-		form.setAttribute("recaptchaSiteKey", siteKey);
-		return super.createLoginForm( form );
+	protected Response challenge(AuthenticationFlowContext context, String error) {
+
+		LoginFormsProvider form = context.form()
+				.setExecution(context.getExecution().getId());
+
+		if (error != null){
+			form.setError(error);
+		}
+
+		Map<String, String> captchaConfig = getCaptchaConfig(context.getAuthenticatorConfig());
+		if (captchaConfig == null) {
+			form.addError(new FormMessage(null, Messages.RECAPTCHA_NOT_CONFIGURED));
+		} else {
+			String siteKey = captchaConfig.get(SITE_KEY);
+			form.setAttribute("recaptchaRequired", true);
+			form.setAttribute("recaptchaSiteKey", siteKey);
+		}
+
+		return createLoginForm(form);
 	}
 
 	@Override
@@ -51,22 +64,38 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 					"validateRecaptcha(AuthenticationFlowContext, boolean, String, String) - Before the validation");
 		}
 
-		AuthenticatorConfigModel captchaConfig = context.getAuthenticatorConfig();
-		LoginFormsProvider form = context.form();
 		String userLanguageTag = context.getSession().getContext().resolveLocale(context.getUser()).toLanguageTag();
 
-		if (captchaConfig == null || captchaConfig.getConfig() == null
-				|| captchaConfig.getConfig().get(SITE_KEY) == null
-				|| captchaConfig.getConfig().get(SITE_SECRET) == null) {
+		AuthenticatorConfigModel captchaConfigModel = context.getAuthenticatorConfig();
+		Map<String, String> captchaConfig = getCaptchaConfig(captchaConfigModel);
+
+		LoginFormsProvider form = context.form();
+		if (captchaConfig == null) {
 			form.addError(new FormMessage(null, Messages.RECAPTCHA_NOT_CONFIGURED));
 			return;
 		}
-		siteKey = captchaConfig.getConfig().get(SITE_KEY);
+
+		String siteKey = captchaConfig.get(SITE_KEY);
 		form.setAttribute("recaptchaRequired", true);
 		form.setAttribute("recaptchaSiteKey", siteKey);
 		form.addScript("https://www.google.com/recaptcha/api.js?hl=" + userLanguageTag);
 
 		super.authenticate(context);
+	}
+
+	private Map<String, String> getCaptchaConfig(AuthenticatorConfigModel captchaConfigModel) {
+
+		if (captchaConfigModel == null) {
+			return null;
+		}
+
+		Map<String, String> config = captchaConfigModel.getConfig();
+
+		if (config == null || config.get(SITE_KEY) == null || config.get(SITE_SECRET) == null) {
+			return null;
+		}
+
+		return config;
 	}
 
 	@Override
